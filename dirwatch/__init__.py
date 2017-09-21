@@ -76,11 +76,13 @@ def parse_args():
 
 
 class Manager:
-    def __init__(self, *, command, watch):
+    def __init__(self, *, command, watch, kill):
         self._watch = watch
         self._command = command
+        self._kill = kill
 
         self._current_process = None
+        self._process_terminated = False
         self._pending_modification = False
 
     def handle_modification(self):
@@ -100,7 +102,11 @@ class Manager:
         if self._pending_modification:
             if self._current_process is None:
                 self._pending_modification = False
+                self._process_terminated = False
                 self._start_process()
+            elif self._kill and not self._process_terminated:
+                self._process_terminated = True
+                self._terminate_process()
 
     def _start_process(self):
         assert self._current_process is None
@@ -175,14 +181,14 @@ def start_observer(directory, include, exclude, debug, on_modification):
     observer.start()
 
 
-def main(directory, include, exclude, command, watch, debug):
+def main(directory, include, exclude, command, watch, kill, debug):
     if include is None:
         include = ['*']
 
     if exclude is None:
         exclude = ['.*']
 
-    manager = Manager(command=command, watch=watch)
+    manager = Manager(command=command, watch=watch, kill=kill)
     event_queue = Queue()
 
     signal.signal(signal.SIGCHLD, lambda signal, frame: manager.handle_sigchld())
