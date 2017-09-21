@@ -39,7 +39,7 @@ def parse_args():
         '-d',
         '--directory',
         default='.',
-        help='The directory to watch, defaults too the current directory.')
+        help='The directory to watch, defaults to the current directory.')
 
     parser.add_argument(
         '-i',
