@@ -33,7 +33,8 @@ def parse_args():
         '--include',
         action='append',
         help='Include only paths matching the specified pattern. Can be '
-             'specified multiple times to match more files.')
+             'specified multiple times to match more files. Defaults to `*`, '
+             'unless this option is used at least once')
 
     parser.add_argument(
         '-e',
@@ -41,7 +42,8 @@ def parse_args():
         action='append',
         help='Exclude paths matching the specified pattern. Can be specified '
              'multiple times to exclude more files. Also applies to files '
-             'included with --include.')
+             'included with --include. Defaults to `.*`, unless this option '
+             'is used at least once.')
 
     parser.add_argument(
         '-w',
@@ -49,7 +51,7 @@ def parse_args():
         action='store_true',
         help='Behave similar to procps-ng watch. Clear console before running '
              'the command and tolerate errors of the called command. Also '
-             'reports the exist status in any case.')
+             'reports the exist status in every case.')
 
     parser.add_argument(
         '-k',
@@ -65,7 +67,11 @@ def parse_args():
              'was ignored or not according to the specified settings.'
     )
 
-    parser.add_argument('command', nargs='...')
+    parser.add_argument(
+        'command',
+        nargs='...',
+        help='Command which is executed whenever a change in the watched '
+             'directory is detected.')
 
     return parser.parse_args()
 
