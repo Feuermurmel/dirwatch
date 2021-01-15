@@ -4,7 +4,7 @@ import signal
 from subprocess import Popen, TimeoutExpired
 from argparse import ArgumentParser
 from fnmatch import fnmatchcase
-from queue import Queue
+from threading import Event
 
 from os.path import normpath
 from watchdog.events import DirModifiedEvent, FileSystemEventHandler
@@ -187,24 +187,20 @@ def main(directory, include, exclude, command, watch, kill, debug):
         exclude = ['.*']
 
     manager = Manager(command=command, watch=watch, kill=kill)
-    event_queue = Queue()
+    event = Event()
 
     signal.signal(signal.SIGCHLD, lambda signal, frame: manager.handle_sigchld())
     signal.signal(signal.SIGTERM, signal.default_int_handler)
 
-    start_observer(
-        directory,
-        include,
-        exclude,
-        debug,
-        lambda: event_queue.put(manager.handle_modification))
+    start_observer(directory, include, exclude, debug, event.set)
 
     try:
-        # Start the process once initially, even without any events.
-        manager.handle_modification()
-
         while True:
-            event_queue.get()()
+            # Start the process once initially, even without any events.
+            manager.handle_modification()
+
+            event.wait()
+            event.clear()
     except KeyboardInterrupt:
         manager.handle_exit()
 
