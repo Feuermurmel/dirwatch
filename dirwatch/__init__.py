@@ -1,12 +1,12 @@
+import fnmatch
 import os
-import sys
+import argparse
+import subprocess
+import threading
 import signal
-from subprocess import Popen, TimeoutExpired
-from argparse import ArgumentParser
-from fnmatch import fnmatchcase
-from threading import Event
-
 from os.path import normpath
+
+import sys
 from watchdog.events import DirModifiedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -15,15 +15,12 @@ class UserError(Exception):
     pass
 
 
-def log(msg, *args):
-    print(
-        '{}: {}'.format(os.path.basename(sys.argv[0]), msg.format(*args)),
-        file=sys.stderr,
-        flush=True)
+def log(message):
+    print(f'dirwatch: {message}', file=sys.stderr, flush=True)
 
 
 def parse_args():
-    parser = ArgumentParser()
+    parser = argparse.ArgumentParser()
 
     parser.add_argument(
         '-d',
@@ -112,19 +109,20 @@ class Manager:
         if self._watch:
             print('\x1bc', end='', flush=True)
 
-        self._current_process = Popen(self._command, start_new_session=True)
+        self._current_process = \
+            subprocess.Popen(self._command, start_new_session=True)
 
     def _reap_process(self):
         try:
             self._current_process.wait(0)
-        except TimeoutExpired:
+        except subprocess.TimeoutExpired:
             pass
         else:
             if self._watch:
                 returncode = self._current_process.returncode
 
                 if returncode:
-                    log('Command failed with exit code {}.'.format(returncode))
+                    log(f'Command failed with exit code {returncode}.')
                 else:
                     log('Command completed successfully.')
 
@@ -145,8 +143,8 @@ def start_observer(directory, include, exclude, debug, on_modification):
     def path_matches(path):
         # A path must be matched by any include pattern and by none of the
         # exclude patterns.
-        return any(fnmatchcase(path, i) for i in include) \
-               and not any(fnmatchcase(path, i) for i in exclude)
+        return any(fnmatch.fnmatchcase(path, i) for i in include) \
+               and not any(fnmatch.fnmatchcase(path, i) for i in exclude)
 
     def event_matches(event):
         if isinstance(event, DirModifiedEvent):
@@ -166,7 +164,7 @@ def start_observer(directory, include, exclude, debug, on_modification):
             matches = event_matches(event)
 
             if debug:
-                log('{}: {}', event, 'Matched' if matches else 'Ignored')
+                log(f'{event}: {"Matched" if matches else "Ignored"}')
 
             if matches:
                 on_modification()
@@ -187,7 +185,7 @@ def main(directory, include, exclude, command, watch, kill, debug):
         exclude = ['.*']
 
     manager = Manager(command=command, watch=watch, kill=kill)
-    event = Event()
+    event = threading.Event()
 
     signal.signal(signal.SIGCHLD, lambda signal, frame: manager.handle_sigchld())
     signal.signal(signal.SIGTERM, signal.default_int_handler)
@@ -209,7 +207,7 @@ def entry_point():
     try:
         main(**vars(parse_args()))
     except UserError as e:
-        log('Error: {}', e)
+        log(f'Error: {e}')
         sys.exit(1)
     except KeyboardInterrupt:
         log('Operation interrupted.')
