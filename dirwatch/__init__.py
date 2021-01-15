@@ -18,6 +18,9 @@ def log(message):
     print(f'dirwatch: {message}', file=sys.stderr, flush=True)
 
 
+_debug = False
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
 
@@ -88,6 +91,9 @@ class Manager:
         self._check_pending_modification()
 
     def handle_sigchld(self):
+        if _debug:
+            log(f'Received SIGCHLD.')
+
         if self._current_process is not None:
             self._reap_process()
 
@@ -112,6 +118,9 @@ class Manager:
         if self._watch:
             print('\x1bc', end='', flush=True)
 
+        if _debug:
+            log(f'Starting command: {" ".join(self._command)}')
+
         self._current_process = \
             subprocess.Popen(self._command, start_new_session=True)
 
@@ -121,7 +130,7 @@ class Manager:
         except subprocess.TimeoutExpired:
             pass
         else:
-            if self._watch:
+            if self._watch or _debug:
                 returncode = self._current_process.returncode
 
                 if returncode:
@@ -148,7 +157,7 @@ class _Monitor(fswatch.Monitor):
         fswatch.libfswatch.fsw_start_monitor(self.handle)
 
 
-def start_monitor(directory, include, exclude, debug, on_modification):
+def start_monitor(directory, include, exclude, on_modification):
     include_re = '|'.join(fnmatch.translate(i) for i in include)
     exclude_re = '|'.join(fnmatch.translate(i) for i in exclude)
 
@@ -161,7 +170,7 @@ def start_monitor(directory, include, exclude, debug, on_modification):
         # without a good replacement in C++'s regex implementation. In the end
         # I just couldn't be bothered.
         if re.match(include_re, path_str) and not re.match(exclude_re, path_str):
-            if debug:
+            if _debug:
                 log(f'Changed: {path_str}')
 
             on_modification()
@@ -175,11 +184,15 @@ def start_monitor(directory, include, exclude, debug, on_modification):
 
 
 def main(directory, include, exclude, command, watch, kill, debug):
+    global _debug
+
     if include is None:
         include = ['*']
 
     if exclude is None:
         exclude = ['.*']
+
+    _debug = debug
 
     manager = Manager(command=command, watch=watch, kill=kill)
     event = threading.Event()
@@ -187,7 +200,7 @@ def main(directory, include, exclude, command, watch, kill, debug):
     signal.signal(signal.SIGCHLD, lambda signal, frame: manager.handle_sigchld())
     signal.signal(signal.SIGTERM, signal.default_int_handler)
 
-    start_monitor(directory, include, exclude, debug, event.set)
+    start_monitor(directory, include, exclude, event.set)
 
     try:
         while True:
