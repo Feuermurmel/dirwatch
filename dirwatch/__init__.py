@@ -1,14 +1,13 @@
+import argparse
 import fnmatch
 import os
-import argparse
+import re
 import subprocess
 import threading
 import signal
-from os.path import normpath
 
+import fswatch.libfswatch
 import sys
-from watchdog.events import DirModifiedEvent, FileSystemEventHandler
-from watchdog.observers import Observer
 
 
 class UserError(Exception):
@@ -63,9 +62,7 @@ def parse_args():
     parser.add_argument(
         '--debug',
         action='store_true',
-        help='Enable debug mode. This will print all events and whether it '
-             'was ignored or not according to the specified settings.'
-    )
+        help='Print the path associated with each detected change.')
 
     parser.add_argument(
         'command',
@@ -145,42 +142,36 @@ class Manager:
             pass
 
 
-def start_observer(directory, include, exclude, debug, on_modification):
-    def path_matches(path):
-        # A path must be matched by any include pattern and by none of the
-        # exclude patterns.
-        return any(fnmatch.fnmatchcase(path, i) for i in include) \
-               and not any(fnmatch.fnmatchcase(path, i) for i in exclude)
+class _Monitor(fswatch.Monitor):
+    # Workaround for https://github.com/paul-nameless/pyfswatch/issues/4.
+    def start(self):
+        fswatch.libfswatch.fsw_start_monitor(self.handle)
 
-    def event_matches(event):
-        if isinstance(event, DirModifiedEvent):
-            return False
-        else:
-            # One or both may be None.
-            paths = [
-                event.src_path,
-                getattr(event, 'dest_path', None)]
 
-            return any(
-                i is not None and path_matches(normpath(i))
-                for i in paths)
+def start_monitor(directory, include, exclude, debug, on_modification):
+    include_re = '|'.join(fnmatch.translate(i) for i in include)
+    exclude_re = '|'.join(fnmatch.translate(i) for i in exclude)
 
-    class EventHandler(FileSystemEventHandler):
-        def on_any_event(self, event):
-            matches = event_matches(event)
+    def callback(path, evt_time, flags, flags_num, event_num):
+        path_str = os.path.relpath(path.decode(), directory)
 
+        # It would be technically possible to pass the include pattern to
+        # fswatch and only evaluate the exclude pattern here (or vice-versa),
+        # but `fnmatch.translate()` makes use of multiple non-POSIX features
+        # without a good replacement in C++'s regex implementation. In the end
+        # I just couldn't be bothered.
+        if re.match(include_re, path_str) and not re.match(exclude_re, path_str):
             if debug:
-                log(f'{event}: {"Matched" if matches else "Ignored"}')
+                log(f'Changed: {path_str}')
 
-            if matches:
-                on_modification()
+            on_modification()
 
-    event_handler = EventHandler()
+    monitor = _Monitor()
+    monitor.add_path(directory)
+    monitor.set_recursive()
+    monitor.set_callback(callback)
 
-    observer = Observer()
-    observer.schedule(event_handler, directory, recursive=True)
-
-    observer.start()
+    threading.Thread(target=monitor.start, daemon=True).start()
 
 
 def main(directory, include, exclude, command, watch, kill, debug):
@@ -196,7 +187,7 @@ def main(directory, include, exclude, command, watch, kill, debug):
     signal.signal(signal.SIGCHLD, lambda signal, frame: manager.handle_sigchld())
     signal.signal(signal.SIGTERM, signal.default_int_handler)
 
-    start_observer(directory, include, exclude, debug, event.set)
+    start_monitor(directory, include, exclude, debug, event.set)
 
     try:
         while True:
