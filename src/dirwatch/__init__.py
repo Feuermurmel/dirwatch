@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
 
 import fswatch.libfswatch
 
@@ -14,14 +15,14 @@ class UserError(Exception):
     pass
 
 
-def log(message):
+def log(message: str) -> None:
     print(f"dirwatch: {message}", file=sys.stderr, flush=True)
 
 
 _debug = False
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -84,32 +85,32 @@ def parse_args():
 
 
 class Manager:
-    def __init__(self, *, command, watch, kill):
+    def __init__(self, *, command: list[str], watch: bool, kill: bool):
         self._watch = watch
         self._command = command
         self._kill = kill
 
-        self._current_process = None
+        self._current_process: subprocess.Popen[bytes] | None = None
         self._process_terminated = False
         self._pending_modification = False
 
-    def handle_modification(self):
+    def handle_modification(self) -> None:
         self._pending_modification = True
         self._check_pending_modification()
 
-    def handle_sigchld(self):
+    def handle_sigchld(self) -> None:
         if _debug:
             log(f"Received SIGCHLD.")
 
         if self._current_process is not None:
             self._reap_process()
 
-    def handle_exit(self):
+    def handle_exit(self) -> None:
         if self._current_process is not None:
             self._terminate_process()
             self._current_process.wait()
 
-    def _check_pending_modification(self):
+    def _check_pending_modification(self) -> None:
         if self._pending_modification:
             if self._current_process is None:
                 self._pending_modification = False
@@ -119,7 +120,7 @@ class Manager:
                 self._process_terminated = True
                 self._terminate_process()
 
-    def _start_process(self):
+    def _start_process(self) -> None:
         assert self._current_process is None
 
         if self._watch:
@@ -130,7 +131,9 @@ class Manager:
 
         self._current_process = subprocess.Popen(self._command, start_new_session=True)
 
-    def _reap_process(self):
+    def _reap_process(self) -> None:
+        assert self._current_process is not None
+
         try:
             self._current_process.wait(0)
         except subprocess.TimeoutExpired:
@@ -147,7 +150,9 @@ class Manager:
             self._current_process = None
             self._check_pending_modification()
 
-    def _terminate_process(self):
+    def _terminate_process(self) -> None:
+        assert self._current_process is not None
+
         log("Sending SIGTERM to process group.")
 
         try:
@@ -157,17 +162,24 @@ class Manager:
             pass
 
 
-class _Monitor(fswatch.Monitor):
+class _Monitor(fswatch.Monitor):  # type: ignore
     # Workaround for https://github.com/paul-nameless/pyfswatch/issues/4.
-    def start(self):
+    def start(self) -> None:
         fswatch.libfswatch.fsw_start_monitor(self.handle)
 
 
-def start_monitor(directory, include, exclude, on_modification):
+def start_monitor(
+    directory: str,
+    include: list[str],
+    exclude: list[str],
+    on_modification: Callable[[], None],
+) -> None:
     include_re = "|".join(fnmatch.translate(i) for i in include)
     exclude_re = "|".join(fnmatch.translate(i) for i in exclude)
 
-    def callback(path, evt_time, flags, flags_num, event_num):
+    def callback(
+        path: bytes, evt_time: int, flags: int, flags_num: int, event_num: int
+    ) -> None:
         path_str = os.path.relpath(path.decode(), directory)
 
         # It would be technically possible to pass the include pattern to
@@ -189,7 +201,15 @@ def start_monitor(directory, include, exclude, on_modification):
     threading.Thread(target=monitor.start, daemon=True).start()
 
 
-def main(directory, include, exclude, command, watch, kill, debug):
+def main(
+    directory: str,
+    include: list[str] | None,
+    exclude: list[str] | None,
+    command: list[str],
+    watch: bool,
+    kill: bool,
+    debug: bool,
+) -> None:
     global _debug
 
     if include is None:
@@ -219,7 +239,7 @@ def main(directory, include, exclude, command, watch, kill, debug):
         manager.handle_exit()
 
 
-def entry_point():
+def entry_point() -> None:
     try:
         main(**vars(parse_args()))
     except UserError as e:
