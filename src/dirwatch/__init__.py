@@ -2,12 +2,12 @@ import argparse
 import fnmatch
 import os
 import re
-import subprocess
-import threading
 import signal
+import subprocess
+import sys
+import threading
 
 import fswatch.libfswatch
-import sys
 
 
 class UserError(Exception):
@@ -15,7 +15,7 @@ class UserError(Exception):
 
 
 def log(message):
-    print(f'dirwatch: {message}', file=sys.stderr, flush=True)
+    print(f"dirwatch: {message}", file=sys.stderr, flush=True)
 
 
 _debug = False
@@ -25,53 +25,60 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        '-d',
-        '--directory',
-        default='.',
-        help='The directory to watch, defaults to the current directory.')
+        "-d",
+        "--directory",
+        default=".",
+        help="The directory to watch, defaults to the current directory.",
+    )
 
     parser.add_argument(
-        '-i',
-        '--include',
-        action='append',
-        help='Include only paths matching the specified pattern. Can be '
-             'specified multiple times to match more files. Defaults to `*`, '
-             'unless this option is used at least once')
+        "-i",
+        "--include",
+        action="append",
+        help="Include only paths matching the specified pattern. Can be "
+        "specified multiple times to match more files. Defaults to `*`, "
+        "unless this option is used at least once",
+    )
 
     parser.add_argument(
-        '-e',
-        '--exclude',
-        action='append',
-        help='Exclude paths matching the specified pattern. Can be specified '
-             'multiple times to exclude more files. Also applies to files '
-             'included with --include. Defaults to `.*`, unless this option '
-             'is used at least once.')
+        "-e",
+        "--exclude",
+        action="append",
+        help="Exclude paths matching the specified pattern. Can be specified "
+        "multiple times to exclude more files. Also applies to files "
+        "included with --include. Defaults to `.*`, unless this option "
+        "is used at least once.",
+    )
 
     parser.add_argument(
-        '-w',
-        '--watch',
-        action='store_true',
-        help='Behave similar to procps-ng watch. Clear console before running '
-             'the command and tolerate errors of the called command. Also '
-             'reports the exist status in every case.')
+        "-w",
+        "--watch",
+        action="store_true",
+        help="Behave similar to procps-ng watch. Clear console before running "
+        "the command and tolerate errors of the called command. Also "
+        "reports the exist status in every case.",
+    )
 
     parser.add_argument(
-        '-k',
-        '--kill',
-        action='store_true',
-        help='Kill and restart the command when it is still running when '
-             'additional changes are detected.')
+        "-k",
+        "--kill",
+        action="store_true",
+        help="Kill and restart the command when it is still running when "
+        "additional changes are detected.",
+    )
 
     parser.add_argument(
-        '--debug',
-        action='store_true',
-        help='Print the path associated with each detected change.')
+        "--debug",
+        action="store_true",
+        help="Print the path associated with each detected change.",
+    )
 
     parser.add_argument(
-        'command',
-        nargs='...',
-        help='Command which is executed whenever a change in the watched '
-             'directory is detected.')
+        "command",
+        nargs="...",
+        help="Command which is executed whenever a change in the watched "
+        "directory is detected.",
+    )
 
     return parser.parse_args()
 
@@ -92,7 +99,7 @@ class Manager:
 
     def handle_sigchld(self):
         if _debug:
-            log(f'Received SIGCHLD.')
+            log(f"Received SIGCHLD.")
 
         if self._current_process is not None:
             self._reap_process()
@@ -116,13 +123,12 @@ class Manager:
         assert self._current_process is None
 
         if self._watch:
-            print('\x1bc', end='', flush=True)
+            print("\x1bc", end="", flush=True)
 
         if _debug:
             log(f'Starting command: {" ".join(self._command)}')
 
-        self._current_process = \
-            subprocess.Popen(self._command, start_new_session=True)
+        self._current_process = subprocess.Popen(self._command, start_new_session=True)
 
     def _reap_process(self):
         try:
@@ -134,15 +140,15 @@ class Manager:
                 returncode = self._current_process.returncode
 
                 if returncode:
-                    log(f'Command failed with exit code {returncode}.')
+                    log(f"Command failed with exit code {returncode}.")
                 else:
-                    log('Command completed successfully.')
+                    log("Command completed successfully.")
 
             self._current_process = None
             self._check_pending_modification()
 
     def _terminate_process(self):
-        log('Sending SIGTERM to process group.')
+        log("Sending SIGTERM to process group.")
 
         try:
             os.killpg(self._current_process.pid, signal.SIGTERM)
@@ -158,8 +164,8 @@ class _Monitor(fswatch.Monitor):
 
 
 def start_monitor(directory, include, exclude, on_modification):
-    include_re = '|'.join(fnmatch.translate(i) for i in include)
-    exclude_re = '|'.join(fnmatch.translate(i) for i in exclude)
+    include_re = "|".join(fnmatch.translate(i) for i in include)
+    exclude_re = "|".join(fnmatch.translate(i) for i in exclude)
 
     def callback(path, evt_time, flags, flags_num, event_num):
         path_str = os.path.relpath(path.decode(), directory)
@@ -171,7 +177,7 @@ def start_monitor(directory, include, exclude, on_modification):
         # I just couldn't be bothered.
         if re.match(include_re, path_str) and not re.match(exclude_re, path_str):
             if _debug:
-                log(f'Changed: {path_str}')
+                log(f"Changed: {path_str}")
 
             on_modification()
 
@@ -187,10 +193,10 @@ def main(directory, include, exclude, command, watch, kill, debug):
     global _debug
 
     if include is None:
-        include = ['*']
+        include = ["*"]
 
     if exclude is None:
-        exclude = ['.*']
+        exclude = [".*"]
 
     _debug = debug
 
@@ -217,8 +223,8 @@ def entry_point():
     try:
         main(**vars(parse_args()))
     except UserError as e:
-        log(f'Error: {e}')
+        log(f"Error: {e}")
         sys.exit(1)
     except KeyboardInterrupt:
-        log('Operation interrupted.')
+        log("Operation interrupted.")
         sys.exit(2)
