@@ -1,5 +1,6 @@
 import argparse
 import fnmatch
+import logging
 import os
 import re
 import signal
@@ -13,13 +14,6 @@ import fswatch.libfswatch
 
 class UserError(Exception):
     pass
-
-
-def log(message: str) -> None:
-    print(f"dirwatch: {message}", file=sys.stderr, flush=True)
-
-
-_debug = False
 
 
 def parse_args() -> argparse.Namespace:
@@ -74,6 +68,8 @@ def parse_args() -> argparse.Namespace:
         help="Print the path associated with each detected change.",
     )
 
+    parser.add_argument("-q", "--quiet", action="store_true", help="Disable logging.")
+
     parser.add_argument(
         "command",
         nargs="...",
@@ -99,8 +95,7 @@ class Manager:
         self._check_pending_modification()
 
     def handle_sigchld(self) -> None:
-        if _debug:
-            log(f"Received SIGCHLD.")
+        logging.debug(f"Received SIGCHLD.")
 
         if self._current_process is not None:
             self._reap_process()
@@ -126,8 +121,7 @@ class Manager:
         if self._watch:
             print("\x1bc", end="", flush=True)
 
-        if _debug:
-            log(f'Starting command: {" ".join(self._command)}')
+        logging.debug(f'Starting command: {" ".join(self._command)}')
 
         self._current_process = subprocess.Popen(self._command, start_new_session=True)
 
@@ -139,13 +133,13 @@ class Manager:
         except subprocess.TimeoutExpired:
             pass
         else:
-            if self._watch or _debug:
-                returncode = self._current_process.returncode
+            returncode = self._current_process.returncode
+            level = logging.INFO if self._watch else logging.DEBUG
 
-                if returncode:
-                    log(f"Command failed with exit code {returncode}.")
-                else:
-                    log("Command completed successfully.")
+            if returncode:
+                logging.log(level, f"Command failed with exit code {returncode}.")
+            else:
+                logging.log(level, "Command completed successfully.")
 
             self._current_process = None
             self._check_pending_modification()
@@ -153,7 +147,7 @@ class Manager:
     def _terminate_process(self) -> None:
         assert self._current_process is not None
 
-        log("Sending SIGTERM to process group.")
+        logging.info("Sending SIGTERM to process group.")
 
         try:
             os.killpg(self._current_process.pid, signal.SIGTERM)
@@ -188,9 +182,7 @@ def start_monitor(
         # without a good replacement in C++'s regex implementation. In the end
         # I just couldn't be bothered.
         if re.match(include_re, path_str) and not re.match(exclude_re, path_str):
-            if _debug:
-                log(f"Changed: {path_str}")
-
+            logging.debug(f"Changed: {path_str}")
             on_modification()
 
     monitor = _Monitor()
@@ -209,16 +201,19 @@ def main(
     watch: bool,
     kill: bool,
     debug: bool,
+    quiet: bool,
 ) -> None:
-    global _debug
+    if debug:
+        logging.root.setLevel(logging.DEBUG)
+
+    if quiet:
+        logging.root.setLevel(logging.ERROR)
 
     if include is None:
         include = ["*"]
 
     if exclude is None:
         exclude = [".*"]
-
-    _debug = debug
 
     manager = Manager(command=command, watch=watch, kill=kill)
     event = threading.Event()
@@ -240,11 +235,13 @@ def main(
 
 
 def entry_point() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     try:
         main(**vars(parse_args()))
     except UserError as e:
-        log(f"Error: {e}")
+        logging.error(f"error: {e}")
         sys.exit(1)
     except KeyboardInterrupt:
-        log("Operation interrupted.")
-        sys.exit(2)
+        logging.error("Operation interrupted.")
+        sys.exit(130)
